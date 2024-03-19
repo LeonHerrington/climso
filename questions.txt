@@ -1,0 +1,10 @@
+Carrington:
+    - "projection"?
+    - date/heure -> longitude soleil
+
+Courbe d'intensité:
+    - degré 0
+    - précision
+
+Detection sunspot:
+    
