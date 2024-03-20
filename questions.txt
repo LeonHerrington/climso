@@ -1,4 +1,7 @@
-Calibrées:
+General:
+    - L1 L2 pas meme temps
+
+Calibration:
     - images centrées?
     - même rayon?
 
