@@ -3,7 +3,7 @@ Calibrées:
     - même rayon?
 
 Carrington:
-    - "projection"?
+    - projection?
     - date/heure -> longitude soleil
     - synoptic map? https://cesam.lam.fr/lascomission/Lascomission/synoptic_and_carrington_maps.html
 

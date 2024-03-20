@@ -52,11 +52,11 @@ def carrington(filename):
                                        scale=[1.2, 1.2]*u.arcsec/u.pixel,
                                        wavelength=6563*u.angstrom)
     
-    aia_map = sunpy.map.Map(data, header)
+    map = sunpy.map.Map(data, header)
 
     shape = data.shape
-    carr_header = make_heliographic_header(aia_map.date, aia_map.observer_coordinate, shape, frame='carrington')
+    carr_header = make_heliographic_header(map.date, map.observer_coordinate, shape, frame='carrington')
 
-    outmap = aia_map.reproject_to(carr_header)
+    outmap = map.reproject_to(carr_header)
 
     return outmap
