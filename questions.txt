@@ -15,4 +15,5 @@ Courbe d'intensité:
     - précision
 
 Detection sunspot:
+    L1 ou L2? (les deux?)
     

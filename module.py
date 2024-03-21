@@ -47,9 +47,25 @@ def getWavelength(filename):
     match = re.search(pattern, filename)
 
     if match:
-        return match.group(0)   
+        return match.group(0)[1:-2]   
     else:
         return -1
+    
+    
+def toSunpyMap(filename):
+    data = readFitsBz2(filename)
+    obs_time = getObstime(filename)
+    wavelength = getWavelength(filename)
+
+    coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=obs_time,
+                 observer='earth', frame=frames.Helioprojective)
+    
+    header = sunpy.map.make_fitswcs_header(data, coord,
+                                       reference_pixel=[1024, 1024]*u.pixel,
+                                       scale=[1.2, 1.2]*u.arcsec/u.pixel,
+                                       wavelength=wavelength*u.angstrom)
+    
+    return sunpy.map.Map(data, header)
     
 
 def carrington(filename):
