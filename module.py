@@ -52,3 +52,4 @@ def carrington(filename):
     outmap = map.reproject_to(carr_header)
 
     return outmap
+
