@@ -1,8 +1,6 @@
 
 import bz2
-import re
 from astropy.io import fits
-import numpy as np
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
@@ -13,78 +11,42 @@ from sunpy.map.header_helper import make_heliographic_header
 
 
 def readFitsBz2(path):
-    with bz2.BZ2File(path) as decompressed_file:
-        with fits.open(decompressed_file) as hdul:
-            data = np.flip(hdul[0].data,axis=0)
-    return data
-
-
-def getObstime(filename):
-
-    filename = filename.split('/')[-1]
-
-    pattern = r'\d{8}_\d{8}'
-
-    match = re.search(pattern, filename)
-
-    if match:
-
-        date_time_str = match.group(0)
-        
-        formatted_datetime = f'{date_time_str[:4]}-{date_time_str[4:6]}-{date_time_str[6:8]} {date_time_str[9:11]}:{date_time_str[11:13]}:{date_time_str[13:15]}'
-
-        return formatted_datetime
-    
-    else:
-        return -1
-    
-def getWavelength(filename):
-
-    filename = filename.split('/')[-1]
-
-    pattern = r'_\d{5}_'
-
-    match = re.search(pattern, filename)
-
-    if match:
-        return match.group(0)[1:-2]   
-    else:
-        return -1
+    decompressed_file = bz2.BZ2File(path)
+    hdul =  fits.open(decompressed_file)
+    return hdul[0]
     
     
 def toSunpyMap(filename):
-    data = readFitsBz2(filename)
-    obs_time = getObstime(filename)
-    wavelength = getWavelength(filename)
+    hdu = readFitsBz2(filename)
 
-    coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=obs_time,
+    coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                  observer='earth', frame=frames.Helioprojective)
+
+    scale = [hdu.header['NAXIS1']/(2*hdu.header['RSUN_OBS']), hdu.header['NAXIS2']/(2*hdu.header['RSUN_OBS'])]
+        
+    header = sunpy.map.make_fitswcs_header(hdu.data, coord,
+                                        reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
+                                        scale=scale*u.arcsec/u.pixel)
     
-    header = sunpy.map.make_fitswcs_header(data, coord,
-                                       reference_pixel=[1024, 1024]*u.pixel,
-                                       scale=[1.2, 1.2]*u.arcsec/u.pixel,
-                                       wavelength=wavelength*u.angstrom)
-    
-    return sunpy.map.Map(data, header)
+    return sunpy.map.Map(hdu.data, header)
     
 
 def carrington(filename):
     
-    data = readFitsBz2(filename)
-    obs_time = getObstime(filename)
-    wavelength = getWavelength(filename)
+    hdu = readFitsBz2(filename)
 
-    coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=obs_time,
-                 observer='earth', frame=frames.Helioprojective)
-    
-    header = sunpy.map.make_fitswcs_header(data, coord,
-                                       reference_pixel=[1024, 1024]*u.pixel,
-                                       scale=[1.2, 1.2]*u.arcsec/u.pixel,
-                                       wavelength=wavelength*u.angstrom)
-    
-    map = sunpy.map.Map(data, header)
+    coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
+                    observer='earth', frame=frames.Helioprojective)
 
-    shape = data.shape
+    scale = [hdu.header['NAXIS1']/(2*hdu.header['RSUN_OBS']), hdu.header['NAXIS2']/(2*hdu.header['RSUN_OBS'])]
+        
+    header = sunpy.map.make_fitswcs_header(hdu.data, coord,
+                                        reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
+                                        scale=scale*u.arcsec/u.pixel)
+
+    map = sunpy.map.Map(hdu.data, header)
+
+    shape = hdu.data.shape
     carr_header = make_heliographic_header(map.date, map.observer_coordinate, shape, frame='carrington')
 
     outmap = map.reproject_to(carr_header)
