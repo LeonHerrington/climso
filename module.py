@@ -21,12 +21,10 @@ def toSunpyMap(filename):
 
     coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                  observer='earth', frame=frames.Helioprojective)
-
-    scale = [hdu.header['NAXIS1']/(2*hdu.header['RSUN_OBS']), hdu.header['NAXIS2']/(2*hdu.header['RSUN_OBS'])]
         
     header = sunpy.map.make_fitswcs_header(hdu.data, coord,
                                         reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
-                                        scale=scale*u.arcsec/u.pixel)
+                                        scale=[1.2, 1.2]*u.arcsec/u.pixel)
     
     return sunpy.map.Map(hdu.data, header)
     
