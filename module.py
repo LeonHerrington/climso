@@ -29,9 +29,12 @@ def toSunpyMap(filename):
     return sunpy.map.Map(hdu.data, header)
     
 
-def carrington(filename):
+def carrington(filename, weights=None):
     
     hdu = readFitsBz2(filename)
+    
+    if weights.any():
+        hdu.data = hdu.data * weights
 
     coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                     observer='earth', frame=frames.Helioprojective)
