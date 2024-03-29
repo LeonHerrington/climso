@@ -21,10 +21,11 @@ def toSunpyMap(filename):
 
     coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                  observer='earth', frame=frames.Helioprojective)
-        
+    
+    scale = [0.5*(hdu.header['NAXIS1']-100)/hdu.header['RSUN_OBS'], 0.5*(hdu.header['NAXIS2']-100)/hdu.header['RSUN_OBS']]
     header = sunpy.map.make_fitswcs_header(hdu.data, coord,
                                         reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
-                                        scale=[1.2, 1.2]*u.arcsec/u.pixel)
+                                        scale=scale*u.arcsec/u.pixel)
     
     return sunpy.map.Map(hdu.data, header)
     
@@ -38,10 +39,11 @@ def carrington(filename, weights=None):
 
     coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                     observer='earth', frame=frames.Helioprojective)
-        
+    
+    scale = [0.5*(hdu.header['NAXIS1']-100)/hdu.header['RSUN_OBS'], 0.5*(hdu.header['NAXIS2']-100)/hdu.header['RSUN_OBS']]
     header = sunpy.map.make_fitswcs_header(hdu.data, coord,
                                         reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
-                                        scale=[1.2, 1.2]*u.arcsec/u.pixel)
+                                        scale=scale*u.arcsec/u.pixel)
 
     map = sunpy.map.Map(hdu.data, header)
 
