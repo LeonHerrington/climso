@@ -36,6 +36,8 @@ def toSunpyMap(filename):
 
     header = getHeader(hdu)
     
+    hdu.data = centerDisk(hdu.data)
+    
     return sunpy.map.Map(hdu.data, header)
 
 
@@ -71,7 +73,7 @@ def getWeights(map):
 def flatten(map):
     weights, _ = getWeights(map)
     
-    flattened = map.data + 9100*weights
+    flattened = map.data + 1.4*np.mean(map.data)*weights
     
     return flattened
 
@@ -163,7 +165,7 @@ def centerDisk(image):
 
 import os
 
-def getMostRecentFile(directory):
+def getMostRecentL2(directory):
     # Get list of folders in the directory
     folders = [f.path for f in os.scandir(directory) if f.is_dir()]
     
@@ -177,7 +179,7 @@ def getMostRecentFile(directory):
     most_recent_folder = folders[0]
     
     # Get list of files in the most recent folder
-    files_in_folder = [f.path for f in os.scandir(most_recent_folder) if f.is_file()]
+    files_in_folder = [f.path for f in os.scandir(most_recent_folder) if f.is_file() and '_l2_' in f.name]
     
     if not files_in_folder:
         print("No files found in the most recent folder")
