@@ -91,15 +91,15 @@ def getUmbraPenumbra(map):
     # Morph
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
     umbra = cv.morphologyEx(umbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
-    cv.circle(umbra, (1024,1024), int(map.meta['rsun_obs']),color=(0,0,0), thickness = 50);
+    cv.circle(umbra, (1024,1024), int(map.meta['rsun_obs']-15),color=(0,0,0), thickness = 30);
 
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
     sunspot = cv.morphologyEx(sunspot.astype(np.uint8), cv.MORPH_OPEN, kernel)
-    cv.circle(sunspot, (1024,1024), int(map.meta['rsun_obs']),color=(0,0,0), thickness = 50);
+    cv.circle(sunspot, (1024,1024), int(map.meta['rsun_obs']-15),color=(0,0,0), thickness = 30);
 
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(5,5))
     penumbra = cv.morphologyEx(penumbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
-    cv.circle(penumbra, (1024,1024), int(map.meta['rsun_obs']),color=(0,0,0), thickness = 50);
+    cv.circle(penumbra, (1024,1024), int(map.meta['rsun_obs']-15),color=(0,0,0), thickness = 30);
     
     # Removes bad penumbra using sunspot
     n_labels, labels = cv.connectedComponents(penumbra, connectivity=8)
@@ -121,6 +121,26 @@ def getUmbraPenumbra(map):
     
     return umbra, penumbra
     
+    
+def drawSunspots(map, umbra=None, penumbra=None):
+    
+    if umbra==None or penumbra==None:
+        umbra, penumbra = getUmbraPenumbra(map)
+    
+    img = cv.convertScaleAbs(map.data, alpha=(255.0/65535.0)).astype(np.uint8)
+    color_image = np.zeros((umbra.shape[0], umbra.shape[1], 3), dtype=np.uint8)
+    color_image[umbra == 255] = [0, 0, 255] 
+    color_image[penumbra == 255] = [255, 0, 0] 
+
+    img_label = cv.addWeighted(cv.cvtColor(img, cv.COLOR_GRAY2RGB),2,color_image,0.2,0)
+
+    contours, hierarchy = cv.findContours(umbra, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    cv.drawContours(img_label, contours, -1, (0,0,255), 1)
+
+    contours, hierarchy = cv.findContours(penumbra, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    cv.drawContours(img_label, contours, -1, (255,0,0), 1)
+    
+    return img_label
             
 
 # Utilities ##################################################
@@ -165,7 +185,7 @@ def centerDisk(image):
 
 import os
 
-def getMostRecentL2(directory):
+def getMostRecent(directory, contains_string):
     # Get list of folders in the directory
     folders = [f.path for f in os.scandir(directory) if f.is_dir()]
     
@@ -179,7 +199,7 @@ def getMostRecentL2(directory):
     most_recent_folder = folders[0]
     
     # Get list of files in the most recent folder
-    files_in_folder = [f.path for f in os.scandir(most_recent_folder) if f.is_file() and '_l2_' in f.name]
+    files_in_folder = [f.path for f in os.scandir(most_recent_folder) if f.is_file() and contains_string in f.name]
     
     if not files_in_folder:
         print("No files found in the most recent folder")
