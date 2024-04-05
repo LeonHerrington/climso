@@ -9,6 +9,7 @@ import sunpy.map
 from sunpy.coordinates import frames
 from sunpy.map.header_helper import make_heliographic_header
 
+from skimage import measure
 
 
 def readFitsBz2(path):
@@ -141,7 +142,43 @@ def drawSunspots(map, umbra=None, penumbra=None):
     cv.drawContours(img_label, contours, -1, (255,0,0), 1)
     
     return img_label
+
+def groupSunspots(map, threshold=0.05):
+    
+    umbra, penumbra = getUmbraPenumbra(map)
+    
+    # Label
+    n_labels, labels, _, centroids = cv.connectedComponentsWithStats(umbra | penumbra, connectivity=8)
+
+    unique_labels = np.arange(1,n_labels)
+
+    for label in unique_labels:
+        point = map.pixel_to_world(centroids[label][0]*u.pixel, centroids[label][1]*u.pixel)
+        
+        for other_label in unique_labels:
+            if label==other_label:
+                continue
             
+            other_point = map.pixel_to_world(centroids[other_label][0]*u.pixel, (centroids[other_label][1])*u.pixel)
+            
+            if point.separation(other_point).value < threshold:
+                labels[labels==other_label]=label
+                unique_labels = unique_labels[unique_labels!=other_label]
+
+        # reducing label indexes
+    for idx, label in enumerate(np.unique(labels)):
+        labels[labels==label]=idx
+    
+    # Centroids  
+    regions = measure.regionprops(labels)
+
+    group_centroids = np.array([[r.centroid[1], r.centroid[0]] for r in regions]).astype(np.uint16)
+
+        # adding centroid for label 0
+    group_centroids = np.insert(group_centroids, 0, [1024, 1024], axis=0)
+    
+    return labels, group_centroids
+
 
 # Utilities ##################################################
 
