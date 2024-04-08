@@ -2,7 +2,8 @@
 import bz2
 from astropy.io import fits
 
-import astropy.units as u
+import astropy.units as u 
+
 from astropy.coordinates import SkyCoord
 
 import sunpy.map
@@ -14,8 +15,12 @@ from skimage import measure
 
 def readFitsBz2(path):
     decompressed_file = bz2.BZ2File(path)
-    hdul =  fits.open(decompressed_file)
-    return hdul[0]
+    hdul = fits.open(decompressed_file)
+    
+    primary_hdu = fits.PrimaryHDU(data=hdul[0].data, header=hdul[0].header) 
+    
+    hdul.close()
+    return primary_hdu
 
 
 def getHeader(hdu):
@@ -33,20 +38,21 @@ def getHeader(hdu):
     
     
 def toSunpyMap(filename):
+
     hdu = readFitsBz2(filename)
 
     header = getHeader(hdu)
     
     hdu.data = centerDisk(hdu.data)
     
-    return sunpy.map.Map(hdu.data, header)
+    return sunpy.map.Map(hdu.data, header, map_type='generic_map')
 
 
 def carrington(filename, weights=None):
     
     hdu = readFitsBz2(filename)
     
-    if weights.any():
+    if type(weights) is np.ndarray:
         hdu.data = hdu.data * weights
     
     header = getHeader(hdu)
@@ -65,9 +71,9 @@ def getWeights(map):
     coordinates = sunpy.map.all_coordinates_from_map(map)
     weights = coordinates.transform_to("heliocentric").z.value
 
-    mu = (weights / np.nanmax(weights))
+    mu = np.array(weights / np.nanmax(weights))
 
-    weights = np.ones(mu.shape) - mu
+    weights = np.array(np.ones(mu.shape) - mu)
     
     return weights, mu
 
