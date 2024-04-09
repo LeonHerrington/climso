@@ -48,18 +48,14 @@ def toSunpyMap(filename):
     return sunpy.map.Map(hdu.data, header, map_type='generic_map')
 
 
-def carrington(filename, weights=None):
+def carrington(filename, flat=False):
     
-    hdu = readFitsBz2(filename)
+    map = toSunpyMap(filename)
     
-    if type(weights) is np.ndarray:
-        hdu.data = hdu.data * weights
-    
-    header = getHeader(hdu)
+    if flat:
+        map = sunpy.map.Map(flatten(map), map.meta)
 
-    map = sunpy.map.Map(hdu.data, header)
-
-    carr_header = make_heliographic_header(map.date, map.observer_coordinate, hdu.data.shape, frame='carrington')
+    carr_header = make_heliographic_header(map.date, map.observer_coordinate, map.data.shape, frame='carrington')
 
     outmap = map.reproject_to(carr_header)
 
