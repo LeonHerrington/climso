@@ -3,6 +3,7 @@ import bz2
 from astropy.io import fits
 
 import astropy.units as u 
+from astropy.table import QTable
 
 from astropy.coordinates import SkyCoord
 
@@ -43,7 +44,7 @@ def toSunpyMap(filename):
 
     header = getHeader(hdu)
     
-    hdu.data = centerDisk(hdu.data)
+    hdu.data = np.flip(centerDisk(hdu.data), axis=0)
     
     return sunpy.map.Map(hdu.data, header, map_type='generic_map')
 
@@ -145,7 +146,8 @@ def drawSunspots(map, umbra=None, penumbra=None):
     
     return img_label
 
-def groupSunspots(map, threshold=0.05):
+
+def groupSunspots(map, threshold=0.05) -> QTable:
     
     umbra, penumbra = getUmbraPenumbra(map)
     
@@ -174,12 +176,25 @@ def groupSunspots(map, threshold=0.05):
     # Centroids  
     regions = measure.regionprops(labels)
 
-    group_centroids = np.array([[r.centroid[1], r.centroid[0]] for r in regions]).astype(np.uint16)
-
-        # adding centroid for label 0
-    group_centroids = np.insert(group_centroids, 0, [1024, 1024], axis=0)
+    centroids_groups = np.array([[r.centroid[1], r.centroid[0]] for r in regions]).astype(np.uint16)
     
-    return labels, group_centroids
+    lon = []
+    lat = []
+    x = []
+    y = []
+    for centroid in centroids_groups:
+        point = map.pixel_to_world(centroid[0]*u.pixel, centroid[1]*u.pixel).heliographic_stonyhurst
+        lon.append(point.lon.deg)
+        lat.append(point.lat.deg)
+        x.append(centroid[0])
+        y.append(centroid[1])
+        
+    table = QTable([np.arange(1,len(lon)+1).astype(np.uint16), [np.ma.masked]*len(lon), [np.ma.masked]*len(lon), lon*u.deg, lat*u.deg, x*u.pixel, y*u.pixel],
+                        names=('label', 'id', 'noaa', 'longitude', 'latitude', 'x', 'y'),
+                        meta={'date': map.date},
+                        )
+    
+    return table
 
 
 # Utilities ##################################################
@@ -248,3 +263,24 @@ def getMostRecent(directory, contains_string):
     files_in_folder.sort(key=lambda x: os.path.getmtime(x), reverse=True)
     
     return files_in_folder[0]
+
+
+# SunspotIndex
+
+def get_current_index():
+    try:
+        with open("index.txt", "r") as f:
+            return int(f.read().strip())
+    except FileNotFoundError:
+        return 0
+
+def save_current_index(index):
+    with open("index.txt", "w") as f:
+        f.write(str(index))
+
+def get_new_id():
+    current_index = get_current_index()
+    new_id = current_index + 1
+    save_current_index(new_id)
+    return new_id
+
