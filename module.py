@@ -1,5 +1,6 @@
 
 import bz2
+import socket
 from astropy.io import fits
 
 import astropy.units as u 
@@ -8,10 +9,14 @@ from astropy.table import QTable
 from astropy.coordinates import SkyCoord
 
 import sunpy.map
-from sunpy.coordinates import frames
+from sunpy.coordinates import frames, RotatedSunFrame
 from sunpy.map.header_helper import make_heliographic_header
 
 from skimage import measure
+
+from ftplib import FTP
+from sunpy.io.special import srs
+
 
 
 def readFitsBz2(path):
@@ -147,34 +152,40 @@ def drawSunspots(map, umbra=None, penumbra=None):
     return img_label
 
 
-def groupSunspots(map, threshold=0.05) -> QTable:
+def groupSunspots(map, threshold=0.03) -> QTable:
     
     umbra, penumbra = getUmbraPenumbra(map)
     
     # Label
     n_labels, labels, _, centroids = cv.connectedComponentsWithStats(umbra | penumbra, connectivity=8)
+    centroids=centroids[1:]
+    
+    groups = []
+    for i, centroid1 in enumerate(centroids):
+        point1 = map.pixel_to_world(centroid1[0]*u.pixel, (centroid1[1])*u.pixel)
+        group_found = False
+        for group in groups:
+            for _, centroid2 in group:
+                point2 = map.pixel_to_world(centroid2[0]*u.pixel, (centroid2[1])*u.pixel)
+                distance = point1.separation(point2).value 
+                if distance < threshold:
+                    group.append((i+1, centroid1))
+                    group_found = True
+                    break
+            if group_found:
+                break
+        if not group_found:
+            groups.append([(i+1, centroid1)])
+    
+    # Assign new label
+    label_image = np.zeros(labels.shape, dtype=np.uint16)
 
-    unique_labels = np.arange(1,n_labels)
-
-    for label in unique_labels:
-        point = map.pixel_to_world(centroids[label][0]*u.pixel, centroids[label][1]*u.pixel)
-        
-        for other_label in unique_labels:
-            if label==other_label:
-                continue
-            
-            other_point = map.pixel_to_world(centroids[other_label][0]*u.pixel, (centroids[other_label][1])*u.pixel)
-            
-            if point.separation(other_point).value < threshold:
-                labels[labels==other_label]=label
-                unique_labels = unique_labels[unique_labels!=other_label]
-
-        # reducing label indexes
-    for idx, label in enumerate(np.unique(labels)):
-        labels[labels==label]=idx
+    for idx, group in enumerate(groups):
+        for label, centroid in group:
+            label_image[labels==label]=idx+1
     
     # Centroids  
-    regions = measure.regionprops(labels)
+    regions = measure.regionprops(label_image)
 
     centroids_groups = np.array([[r.centroid[1], r.centroid[0]] for r in regions]).astype(np.uint16)
     
@@ -196,6 +207,70 @@ def groupSunspots(map, threshold=0.05) -> QTable:
     
     return table
 
+
+# SRS
+
+def getSRSTable(date) -> QTable:
+    
+    filename = 'pub/warehouse/' + str(date.datetime.year) + '/SRS/' + date.strftime("%Y%m%d") + 'SRS.txt'
+
+    while True:
+        try:
+            with FTP('ftp.swpc.noaa.gov') as ftp:
+                ftp.login()
+                
+                file_contents = []
+                ftp.retrlines('RETR '+filename, file_contents.append)
+                
+                header, section_lines, supplementary_lines = srs.split_lines(file_contents)
+                srs_table = srs.make_table(header, section_lines, supplementary_lines)
+                
+                return srs_table
+            
+        except socket.gaierror:
+            print('[Errno 11001] getaddrinfo failed : Trying again')
+        
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            break
+    
+
+# assign NOAA
+
+def assignNOAAToTable(table, map) -> QTable:
+    srs_table = getSRSTable(map.date)
+    
+    date_obs = srs_table.meta['issued'].replace(hour=0, minute=0)
+    
+    for region in srs_table[srs_table['ID']=='I']:
+        point_noaa = SkyCoord(region['Longitude'],
+                    region['Latitude'], 
+                    obstime=date_obs, 
+                    observer='earth', 
+                    frame=frames.HeliographicStonyhurst,
+                    )
+
+        diffrot_point = SkyCoord(RotatedSunFrame(base=point_noaa, rotated_time=map.date))
+        transformed_diffrot_point = diffrot_point.transform_to(map.coordinate_frame)
+        
+        label_closest_old = 0
+        min_dist = np.inf
+        for idx, centroid_old in enumerate(table):
+            point_old = map.pixel_to_world(centroid_old['x'], centroid_old['y'])
+            dist = transformed_diffrot_point.separation(point_old).deg
+            
+            if min_dist > dist:
+                min_dist = dist
+                min_idx  = idx
+        
+        if min_dist<0.02:
+            table[min_idx]['noaa'] = region['Number']
+            
+    return table
+    
+    
+    
+    
 
 # Utilities ##################################################
 
