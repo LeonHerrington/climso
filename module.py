@@ -325,14 +325,12 @@ def getMostRecent(directory, contains_string):
         print("No folders found in the directory")
         return None
     
-    most_recent_folder = folders[0]
-    
     # Get list of files in the most recent folder
-    files_in_folder = [f.path for f in os.scandir(most_recent_folder) if f.is_file() and contains_string in f.name]
+    for most_recent_folder in folders:
+        files_in_folder = [f.path for f in os.scandir(most_recent_folder) if f.is_file() and contains_string in f.name]
     
-    if not files_in_folder:
-        print("No files found in the most recent folder")
-        return None
+        if files_in_folder:
+            break
     
     # Sort files by modification time (most recent first)
     files_in_folder.sort(key=lambda x: os.path.getmtime(x), reverse=True)
