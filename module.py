@@ -19,16 +19,6 @@ from sunpy.io.special import srs
 
 
 
-def readFitsBz2(path):
-    decompressed_file = bz2.BZ2File(path)
-    hdul = fits.open(decompressed_file)
-    
-    primary_hdu = fits.PrimaryHDU(data=hdul[0].data, header=hdul[0].header) 
-    
-    hdul.close()
-    return primary_hdu
-
-
 def getHeader(hdu):
     coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                  observer='earth', frame=frames.Helioprojective)
@@ -43,20 +33,24 @@ def getHeader(hdu):
     return header
     
     
-def toSunpyMap(filename):
+def toSunpyMap(filename, center_disk=False):
 
-    hdu = readFitsBz2(filename)
+    with fits.open(filename) as hdul:
 
-    header = getHeader(hdu)
+        if center_disk: hdul[0] = centerDisk(hdul[0])
+        
+        header = getHeader(hdul[0])
+        
+        hdul[0].data = np.flip(hdul[0].data, axis=0)
+        
+        map = sunpy.map.Map(hdul[0].data, header, map_type='generic_map')
     
-    hdu.data = np.flip(centerDisk(hdu.data), axis=0)
-    
-    return sunpy.map.Map(hdu.data, header, map_type='generic_map')
+        return map
 
 
 def carrington(filename, flat=False):
     
-    map = toSunpyMap(filename)
+    map = toSunpyMap(filename, center_disk=True)
     
     if flat:
         map = sunpy.map.Map(flatten(map), map.meta)
@@ -70,19 +64,20 @@ def carrington(filename, flat=False):
 
 def getWeights(map):
     coordinates = sunpy.map.all_coordinates_from_map(map)
-    coordinates = sunpy.map.all_coordinates_from_map(map)
     weights = coordinates.transform_to("heliocentric").z.value
 
     mu = np.array(weights / np.nanmax(weights))
 
-    weights = np.array(np.ones(mu.shape) - mu)
+    weights = np.ones(mu.shape) - mu
     
     return weights, mu
 
 def flatten(map):
     weights, _ = getWeights(map)
     
-    flattened = map.data + 1.4*np.mean(map.data)*weights
+    weights[np.isnan(weights)]=1
+    
+    flattened = map.data + 1.2*np.mean(map.data)*weights # was 1.2
     
     return flattened
 
@@ -92,6 +87,11 @@ def getUmbraPenumbra(map):
     # Flatten (limb darkness correction)
     flattened = flatten(map)
     
+    mask = np.zeros(map.data.shape, dtype=np.uint8)
+    cv.circle(mask, (int(map.meta['crpix1']), int(map.meta['crpix2'])), int(map.meta['rsun_obs']-20), 1, thickness=-1)
+
+    flattened[mask==0]=np.nan
+    
     # threshold
     _, umbra = cv.threshold(flattened,0.7*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
     _, sunspot = cv.threshold(flattened,0.91*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
@@ -100,15 +100,12 @@ def getUmbraPenumbra(map):
     # Morph
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
     umbra = cv.morphologyEx(umbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
-    cv.circle(umbra, (1024,1024), int(map.meta['rsun_obs']-15),color=(0,0,0), thickness = 30);
 
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
     sunspot = cv.morphologyEx(sunspot.astype(np.uint8), cv.MORPH_OPEN, kernel)
-    cv.circle(sunspot, (1024,1024), int(map.meta['rsun_obs']-15),color=(0,0,0), thickness = 30);
 
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(5,5))
     penumbra = cv.morphologyEx(penumbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
-    cv.circle(penumbra, (1024,1024), int(map.meta['rsun_obs']-15),color=(0,0,0), thickness = 30);
     
     # Removes bad penumbra using sunspot
     n_labels, labels = cv.connectedComponents(penumbra, connectivity=8)
@@ -280,8 +277,11 @@ import numpy as np
 
 
 
-def centerDisk(image):
-    _, disk = cv.threshold(image,5000,255,cv.THRESH_BINARY)
+def centerDisk(hdu):
+    _, disk = cv.threshold(hdu.data, 1500, 255, cv.THRESH_BINARY)
+    
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(100,100))
+    disk = cv.morphologyEx(disk.astype(np.uint8), cv.MORPH_OPEN, kernel)
     
     disk=disk.astype(np.uint8)
     
@@ -289,7 +289,11 @@ def centerDisk(image):
 
     # Assuming the disk is the largest contour
     largest_contour = max(contours, key=cv.contourArea)
-
+    
+    # Get radius
+    x, y, w, h = cv.boundingRect(largest_contour)
+    hdu.header['rsun_obs'] = w/2.0-10 # sun radius in pixels
+    
     # Calculate centroid
     M = cv.moments(largest_contour)
     centroid_x = int(M["m10"] / M["m00"])
@@ -303,10 +307,10 @@ def centerDisk(image):
     translation_y = center_y - centroid_y
 
     # Translate the image
-    centered_image = np.roll(image, translation_x, axis=1)
-    centered_image = np.roll(centered_image, translation_y, axis=0)
+    hdu.data = np.roll(hdu.data, translation_x, axis=1)
+    hdu.data = np.roll(hdu.data, translation_y, axis=0)
     
-    return centered_image
+    return hdu
 
 
 # Misc ##################################################
