@@ -292,7 +292,7 @@ def centerDisk(hdu):
     
     # Get radius
     x, y, w, h = cv.boundingRect(largest_contour)
-    hdu.header['rsun_obs'] = w/2.0-10 # sun radius in pixels
+    hdu.header['rsun_obs'] = w/2.0 # sun radius in pixels
     
     # Calculate centroid
     M = cv.moments(largest_contour)
