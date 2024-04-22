@@ -1,5 +1,4 @@
 
-import bz2
 import socket
 from astropy.io import fits
 
@@ -25,7 +24,7 @@ def getHeader(hdu):
     
     scale = [0.5*(hdu.header['NAXIS1']-100)/hdu.header['RSUN_OBS'], 0.5*(hdu.header['NAXIS2']-100)/hdu.header['RSUN_OBS']]
     header = sunpy.map.make_fitswcs_header(hdu.data, coord,
-                                        reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
+                                        reference_pixel=[1023.5, 1023.5]*u.pixel,
                                         scale=scale*u.arcsec/u.pixel)
     
     header['rsun_obs'] = hdu.header['rsun_obs']
@@ -44,13 +43,17 @@ def toSunpyMap(filename, center_disk=False):
         hdul[0].data = np.flip(hdul[0].data, axis=0)
         
         map = sunpy.map.Map(hdul[0].data, header, map_type='generic_map')
-    
+        
         return map
 
 
-def carrington(filename, flat=False):
+def carrington(filename, flat=True):
     
     map = toSunpyMap(filename, center_disk=True)
+    
+    # removes outer pixel
+    map.meta['cdelt1'] *= 1.01
+    map.meta['cdelt2'] *= 1.01
     
     if flat:
         map = sunpy.map.Map(flatten(map), map.meta)
@@ -77,7 +80,7 @@ def flatten(map):
     
     weights[np.isnan(weights)]=1
     
-    flattened = map.data + 1.2*np.mean(map.data)*weights # was 1.2
+    flattened = map.data + 0.7*np.mean(map.data[map.data>10000])*weights # was 0.75
     
     return flattened
 
@@ -95,7 +98,7 @@ def getUmbraPenumbra(map):
     # threshold
     _, umbra = cv.threshold(flattened,0.7*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
     _, sunspot = cv.threshold(flattened,0.91*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
-    _, penumbra = cv.threshold(flattened,0.96*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
+    _, penumbra = cv.threshold(flattened,0.95*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
 
     # Morph
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
@@ -292,7 +295,7 @@ def centerDisk(hdu):
     
     # Get radius
     x, y, w, h = cv.boundingRect(largest_contour)
-    hdu.header['rsun_obs'] = w/2.0 # sun radius in pixels
+    hdu.header['rsun_obs'] = max(w, h)/2.0 # sun radius in pixels
     
     # Calculate centroid
     M = cv.moments(largest_contour)
