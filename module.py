@@ -22,9 +22,9 @@ def getHeader(hdu):
     coord = SkyCoord(0*u.arcsec, 0*u.arcsec, obstime=hdu.header['DATE_OBS'],
                  observer='earth', frame=frames.Helioprojective)
     
-    scale = [0.5*(hdu.header['NAXIS1']-100)/hdu.header['RSUN_OBS'], 0.5*(hdu.header['NAXIS2']-100)/hdu.header['RSUN_OBS']]
+    scale  = [0.5*(hdu.header['NAXIS1']-100)/hdu.header['RSUN_OBS'], 0.5*(hdu.header['NAXIS2']-100)/hdu.header['RSUN_OBS']]
     header = sunpy.map.make_fitswcs_header(hdu.data, coord,
-                                        reference_pixel=[1023.5, 1023.5]*u.pixel,
+                                        reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
                                         scale=scale*u.arcsec/u.pixel)
     
     header['rsun_obs'] = hdu.header['rsun_obs']
@@ -44,22 +44,25 @@ def toSunpyMap(filename, center_disk=False):
         
         map = sunpy.map.Map(hdul[0].data, header, map_type='generic_map')
         
-        return map
+    return map
 
 
-def carrington(filename, flat=True):
+def carrington(filename, flat=False, center=False):
     
-    map = toSunpyMap(filename, center_disk=True)
+    map = toSunpyMap(filename, center_disk=center)
     
     # removes outer pixel
     map.meta['cdelt1'] *= 1.01
     map.meta['cdelt2'] *= 1.01
     
     if flat:
-        map = sunpy.map.Map(flatten(map), map.meta)
+        weights, _ = getWeights(map)
+        weights[np.isnan(weights)]=1
+        flattened = map.data + 0.8*np.median(map.data)*weights
+        map = sunpy.map.Map(flattened, map.meta)
 
     carr_header = make_heliographic_header(map.date, map.observer_coordinate, map.data.shape, frame='carrington')
-
+    
     outmap = map.reproject_to(carr_header)
 
     return outmap
@@ -67,7 +70,7 @@ def carrington(filename, flat=True):
 
 def getWeights(map):
     coordinates = sunpy.map.all_coordinates_from_map(map)
-    weights = coordinates.transform_to("heliocentric").z.value
+    weights     = coordinates.transform_to("heliocentric").z.value
 
     mu = np.array(weights / np.nanmax(weights))
 
@@ -96,18 +99,18 @@ def getUmbraPenumbra(map):
     flattened[mask==0]=np.nan
     
     # threshold
-    _, umbra = cv.threshold(flattened,0.7*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
-    _, sunspot = cv.threshold(flattened,0.91*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
+    _, umbra    = cv.threshold(flattened,0.7*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
+    _, sunspot  = cv.threshold(flattened,0.91*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
     _, penumbra = cv.threshold(flattened,0.95*np.nanmedian(flattened),255,cv.THRESH_BINARY_INV)
 
     # Morph
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
-    umbra = cv.morphologyEx(umbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
+    umbra  = cv.morphologyEx(umbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
 
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
+    kernel  = cv.getStructuringElement(cv.MORPH_ELLIPSE,(3,3))
     sunspot = cv.morphologyEx(sunspot.astype(np.uint8), cv.MORPH_OPEN, kernel)
 
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(5,5))
+    kernel   = cv.getStructuringElement(cv.MORPH_ELLIPSE,(5,5))
     penumbra = cv.morphologyEx(penumbra.astype(np.uint8), cv.MORPH_OPEN, kernel)
     
     # Removes bad penumbra using sunspot
@@ -117,7 +120,7 @@ def getUmbraPenumbra(map):
     mask = np.isin(labels, keep_label_list)
 
     penumbra[~mask] = 0
-    labels[~mask] = 0
+    labels[~mask]   = 0
 
     # turns penumbra with no umbra into umbra
     remove_label_list = np.unique(cv.bitwise_and(labels,umbra.astype(np.int32)))
@@ -138,7 +141,7 @@ def drawSunspots(map, umbra=None, penumbra=None):
     
     img = cv.convertScaleAbs(map.data, alpha=(255.0/65535.0)).astype(np.uint8)
     color_image = np.zeros((umbra.shape[0], umbra.shape[1], 3), dtype=np.uint8)
-    color_image[umbra == 255] = [0, 0, 255] 
+    color_image[umbra == 255]    = [0, 0, 255] 
     color_image[penumbra == 255] = [255, 0, 0] 
 
     img_label = cv.addWeighted(cv.cvtColor(img, cv.COLOR_GRAY2RGB),2,color_image,0.2,0)
@@ -152,7 +155,7 @@ def drawSunspots(map, umbra=None, penumbra=None):
     return img_label
 
 
-def groupSunspots(map, threshold=0.03) -> QTable:
+def groupSunspots(map, threshold=0.01) -> QTable:
     
     umbra, penumbra = getUmbraPenumbra(map)
     
@@ -166,7 +169,7 @@ def groupSunspots(map, threshold=0.03) -> QTable:
         group_found = False
         for group in groups:
             for _, centroid2 in group:
-                point2 = map.pixel_to_world(centroid2[0]*u.pixel, (centroid2[1])*u.pixel)
+                point2   = map.pixel_to_world(centroid2[0]*u.pixel, (centroid2[1])*u.pixel)
                 distance = point1.separation(point2).value 
                 if distance < threshold:
                     group.append((i+1, centroid1))
@@ -191,8 +194,8 @@ def groupSunspots(map, threshold=0.03) -> QTable:
     
     lon = []
     lat = []
-    x = []
-    y = []
+    x   = []
+    y   = []
     for centroid in centroids_groups:
         point = map.pixel_to_world(centroid[0]*u.pixel, centroid[1]*u.pixel).heliographic_stonyhurst
         lon.append(point.lon.deg)
@@ -200,10 +203,11 @@ def groupSunspots(map, threshold=0.03) -> QTable:
         x.append(centroid[0])
         y.append(centroid[1])
         
-    table = QTable([np.arange(1,len(lon)+1).astype(np.uint16), [np.ma.masked]*len(lon), [np.ma.masked]*len(lon), lon*u.deg, lat*u.deg, x*u.pixel, y*u.pixel],
-                        names=('label', 'id', 'noaa', 'longitude', 'latitude', 'x', 'y'),
-                        meta={'date': map.date},
-                        )
+    table = QTable(
+                [np.arange(1,len(lon)+1).astype(np.uint16), [np.ma.masked]*len(lon), [np.ma.masked]*len(lon), lon*u.deg, lat*u.deg, x*u.pixel, y*u.pixel],
+                names=('label', 'id', 'noaa', 'longitude', 'latitude', 'x', 'y'),
+                meta={'date': map.date},
+                )
     
     return table
 
@@ -236,7 +240,6 @@ def getSRSTable(date) -> QTable:
     
 
 # assign NOAA
-
 def assignNOAAToTable(table, map) -> QTable:
     srs_table = getSRSTable(map.date)
     
@@ -253,11 +256,10 @@ def assignNOAAToTable(table, map) -> QTable:
         diffrot_point = SkyCoord(RotatedSunFrame(base=point_noaa, rotated_time=map.date))
         transformed_diffrot_point = diffrot_point.transform_to(map.coordinate_frame)
         
-        label_closest_old = 0
         min_dist = np.inf
         for idx, centroid_old in enumerate(table):
             point_old = map.pixel_to_world(centroid_old['x'], centroid_old['y'])
-            dist = transformed_diffrot_point.separation(point_old).deg
+            dist      = transformed_diffrot_point.separation(point_old).deg
             
             if min_dist > dist:
                 min_dist = dist
@@ -267,10 +269,8 @@ def assignNOAAToTable(table, map) -> QTable:
             table[min_idx]['noaa'] = region['Number']
             
     return table
-    
-    
-    
-    
+
+
 
 # Utilities ##################################################
 
@@ -281,10 +281,10 @@ import numpy as np
 
 
 def centerDisk(hdu):
-    _, disk = cv.threshold(hdu.data, 1500, 255, cv.THRESH_BINARY)
+    _, disk = cv.threshold(hdu.data, np.median(hdu.data)/3, 255, cv.THRESH_BINARY)
     
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(100,100))
-    disk = cv.morphologyEx(disk.astype(np.uint8), cv.MORPH_OPEN, kernel)
+    disk   = cv.morphologyEx(disk.astype(np.uint8), cv.MORPH_OPEN, kernel)
     
     disk=disk.astype(np.uint8)
     
@@ -303,9 +303,9 @@ def centerDisk(hdu):
     centroid_y = int(M["m01"] / M["m00"])
 
     # Calculate translation required to center the centroid
-    rows, cols = disk.shape
-    center_x = cols // 2
-    center_y = rows // 2
+    rows, cols    = disk.shape
+    center_x      = cols // 2
+    center_y      = rows // 2
     translation_x = center_x - centroid_x
     translation_y = center_y - centroid_y
 
