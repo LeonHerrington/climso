@@ -24,7 +24,7 @@ def getHeader(hdu):
     
     scale  = [0.5*(hdu.header['NAXIS1']-100)/hdu.header['RSUN_OBS'], 0.5*(hdu.header['NAXIS2']-100)/hdu.header['RSUN_OBS']]
     header = sunpy.map.make_fitswcs_header(hdu.data, coord,
-                                        reference_pixel=[hdu.header['CRPIX1'], hdu.header['CRPIX2']]*u.pixel,
+                                        reference_pixel=[1024, 1024]*u.pixel,
                                         scale=scale*u.arcsec/u.pixel)
     
     header['rsun_obs'] = hdu.header['rsun_obs']
@@ -281,7 +281,7 @@ import numpy as np
 
 
 def centerDisk(hdu):
-    _, disk = cv.threshold(hdu.data, np.median(hdu.data)/3, 255, cv.THRESH_BINARY)
+    _, disk = cv.threshold(hdu.data, np.median(hdu.data)/2, 255, cv.THRESH_BINARY)
     
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(100,100))
     disk   = cv.morphologyEx(disk.astype(np.uint8), cv.MORPH_OPEN, kernel)
@@ -294,20 +294,15 @@ def centerDisk(hdu):
     largest_contour = max(contours, key=cv.contourArea)
     
     # Get radius
-    x, y, w, h = cv.boundingRect(largest_contour)
-    hdu.header['rsun_obs'] = max(w, h)/2.0 # sun radius in pixels
-    
-    # Calculate centroid
-    M = cv.moments(largest_contour)
-    centroid_x = int(M["m10"] / M["m00"])
-    centroid_y = int(M["m01"] / M["m00"])
+    (x_axis,y_axis), radius = cv.minEnclosingCircle(largest_contour) 
+    hdu.header['rsun_obs'] = radius # sun radius in pixels
 
     # Calculate translation required to center the centroid
     rows, cols    = disk.shape
     center_x      = cols // 2
     center_y      = rows // 2
-    translation_x = center_x - centroid_x
-    translation_y = center_y - centroid_y
+    translation_x = center_x - int(x_axis)
+    translation_y = center_y - int(y_axis)
 
     # Translate the image
     hdu.data = np.roll(hdu.data, translation_x, axis=1)
