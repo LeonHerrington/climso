@@ -122,8 +122,10 @@ def medianFlatten(map) -> np.ndarray[np.dtype[np.uint16]]:
     medblur_uint8 = cv.medianBlur(image_uint8, 255)
     medblur_uint16 = ((medblur_uint8.astype(np.float32) / 255 * max_val) + min_val).astype(np.uint16)
     
-    flattened = image_uint16 - 1.0*medblur_uint16
-    flattened = flattened - flattened.min()
+    # invert
+    inverted = np.max(medblur_uint16)-medblur_uint16
+    
+    flattened = image_uint16 + 1.0*inverted
     
     return flattened
 

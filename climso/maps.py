@@ -30,7 +30,7 @@ class SynopticMap:
     
     """
 
-    def __init__(self, climso_dir, rotation:int=None, disk='l1'):
+    def __init__(self, climso_dir:str, rotation:int, disk='l1'):
         """
         Initializes the SynopticMap class.
 
@@ -42,19 +42,18 @@ class SynopticMap:
         
         disk (str): type of disk to use 'l1' or 'l2'. Default is 'l1'.
         """
-        if rotation == None : rotation = int(sunpy.coordinates.sun.carrington_rotation_number(t='now'))-1
         
         self.rotation=rotation
         self.disk=disk
         self.data = getSynopticMap(climso_dir, rotation, disk)
         
     
-    def plot(self,figsize=(10,5), cmap='gray'):
+    def plot(self,figsize=(10,5), cmap='gray', vmin=None, vmax=None):
         """
         Plots the synopticMap.
         """
         plt.figure(figsize=figsize)
-        plt.imshow(self.data, origin='lower', extent=[0,360,-90,90], cmap=cmap)
+        plt.imshow(self.data, origin='lower', extent=[0,360,-90,90], cmap=cmap, vmin=vmin, vmax=vmax)
  
         plt.xticks(np.arange(0, 361, 30))
         plt.yticks(np.arange(-90,91,30))
@@ -106,6 +105,10 @@ def getSynopticMap(climso_dir, rotation: int, disk='l1'):
                                         closest_time = file_time
                                         file = filename
                             if file: files.append(os.path.join(date_folder, file))
+                            
+    if len(files)<2: 
+        print('Not enough images found')
+        return None
     
     ### Carrington projections
     carrington_list = []
@@ -200,7 +203,7 @@ def getSynopticMap(climso_dir, rotation: int, disk='l1'):
     return synoptic_map
 
 
-def carrington(filename, flat=False, center=False, mean:int=None):
+def carrington(filename, flat=False, center=False, mean=None):
     """
     Parameters
     ------
