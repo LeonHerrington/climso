@@ -14,6 +14,7 @@ from sunpy.coordinates import frames, RotatedSunFrame
 from sunpy.io.special import srs
 from skimage import measure
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 from .utils import medianFlatten, get_mu
 
@@ -239,10 +240,10 @@ class Prominences:
 
     def __init__(self, filename):
         
-        self.file = filename
+        self.filename = filename
         self.array, self.date_obs = self.radialArray(self.filename)
         self.prominences = self.getProminences(self.filename, self.array)
-    
+            
     
     def radialArray(self,filename) -> np.ndarray[np.dtype[np.float64]]:
         """
@@ -326,7 +327,7 @@ class Prominences:
         length = len(line)
 
         for i in range(1, len(indices)):
-            if indices[i] == indices[i-1] + 1 or (indices[i] == 0 and indices[i-1] == length - 1):
+            if abs(indices[i]-indices[i-1])<10 or (indices[i] < 5 and indices[i-1] > length-5):
                 current_group.append(indices[i])
             else:
                 groups.append(current_group)
@@ -343,7 +344,7 @@ class Prominences:
 
         return central_indices
     
-    def maxRadius(self, radial_array, deg:float, threshold=10000) -> Optional[dict]:
+    def maxRadius(self, radial_array, deg:float, threshold=15000) -> Optional[dict]:
         """
         Parameters
         ------
@@ -363,7 +364,7 @@ class Prominences:
         for idx, line in enumerate(radial_array):
             gap=0
             
-            while gap<4:
+            while gap<10:
                 gap+=1
                 h_scaling = int(6.0*idx/radial_array.shape[0])
                 filtered_line = line[int(deg*deg_step)-(gap+h_scaling):int(deg*deg_step)+(gap+h_scaling)]
@@ -384,7 +385,7 @@ class Prominences:
         return max_radius_entry
   
   
-    def getProminences(self, file, array) -> pd.DataFrame:
+    def getProminences(self, filename, array=None, r_coeff=1.03) -> pd.DataFrame:
         """
         Parameters
         ------
@@ -397,7 +398,10 @@ class Prominences:
         ------
         DataFrame : prominences ('deg', 'radius', 'value').
         """
-        prom_degs = self.getProminencePositions(file)
+        if array is None : 
+            self, date_obs = self.radialArray(filename)
+        
+        prom_degs = self.getProminencePositions(filename, r_coeff=r_coeff)
         
         prominences = []
         for deg in prom_degs:
@@ -407,59 +411,119 @@ class Prominences:
 
         return pd.DataFrame(prominences)
     
+    def plot(self):
+        fig, ax = plt.subplots(figsize=(10,4))
+        plt.imshow(self.array, origin='lower')
+        
+        for _, prom in self.prominences.iterrows():
+            plt.plot(int(prom.deg*2), int((prom.radius-1)*1e3), 'ro')
+            plt.axhline(y=int((prom.radius-1)*1e3), color='red', linestyle='-', linewidth=0.5)
+
+        xticks = np.linspace(0, 360, 19)
+        ax.set_xticks(np.linspace(0, 720, 19))
+        ax.set_xticklabels([f'{xtick:.0f}°' for xtick in xticks])
+        plt.xlabel('Degrees')
+
+        yticks = np.linspace(1, 1+(len(self.array)-1)*1e-3, 7)
+        ax.set_yticks(np.linspace(0, len(self.array), 7))
+        ax.set_yticklabels([f'{ytick:.2f}' for ytick in yticks])
+
+        plt.ylabel('Solar Radius');
     
 
-
-
-### Functions: #########################################################################################
-
-# def estimateSpeed(files:list[str], deg:float):
-#     """
-#     Parameters
-#     ------
-#     files (list[str]) : list of FITS files (c1 or c2) from which to estimate the speed of the prominence.
+class ProminenceSpeed:
     
-#     deg (float) : position of the prominence in degrees.
+    def __init__(self, prominences:list[Prominences], prominence_index:int):
+        
+        prominences.sort(key=lambda x: x.date_obs)
 
-#     Returns
-#     ------
-#     speeds(float) : instantaneous velocity each calculated between two images, 
-#     radiuses(float) : height of the prominence in solar radiuses for each image,
-#     times(datetime) : datetime of each image,
-#     degrees(float) : position of the "peak" of the prominence in degrees for each image.
-#     """
+        self.deg = prominences[-1].prominences.iloc[prominence_index].deg
+        self.times_radiuses, self.times_speeds = self.estimateSpeed(prominences, prominence_index)
+        
+
+    def estimateSpeed(self, prominences:list[Prominences], prominence_index:int):
+        """
+        Parameters
+        ------
+        prominences (list[Prominences]) : list of Prominence objects from which we will estimate the velocities. ideally close to each other in time.
+        
+        prominence_index (int) : index of the prominence in the most recent Prominence object.
+
+        Returns
+        ------
+        times_radiuses ([list[datetime], list[float]]) : [times, radiuses] where the times are the datetime of each image and the radiuses are the height of the prominence in solar radiuses for each image.
+        
+        times_speeds ([list[datetime], list[float]]) : [times, speeds] where the times are the datetime of the images and the speeds are the instantaneous velocities each calculated between each image and the last.
+        """
+        
+        # Radiuses
+        base_prominence = prominences[-1].prominences.iloc[prominence_index]
+        last_deg = base_prominence.deg
+        times = []
+        radiuses = []
+        for n in range(2, len(prominences)):
+            min_diff = np.inf
+            closest_prom = None
+            for idx, prominence in prominences[-n].prominences.iterrows():
+                diff = abs(last_deg-prominence.deg)
+                if diff<5 and diff<min_diff:
+                    min_diff=diff
+                    closest_prom=prominence
+            if closest_prom is not None:
+                last_deg = closest_prom.deg
+                times.insert(0, prominences[-n].date_obs)
+                radiuses.insert(0, closest_prom.radius)
+        times.append(prominences[-1].date_obs)
+        radiuses.append(base_prominence.radius)
+        
+        times_radiuses = [times, radiuses]
+        
+        # Speeds
+        speeds = []
+        times = []
+        for n in range(1,len(times_radiuses[0])):
+            distance = (times_radiuses[1][n] - times_radiuses[1][n-1])*696e3 # km
+            time = abs(times_radiuses[0][n] - times_radiuses[0][n-1])
+            if time.seconds == 0 : continue # to avoid division by zero
+            
+            speed = distance / time.seconds # km/s
+            speeds.append(speed)
+            times.append(times_radiuses[0][n])
+
+        times_speeds = [times, speeds]
+        
+        return times_radiuses, times_speeds
     
-#     speeds   = []
-#     radiuses = []
-#     times    = []
-#     degrees  = []
-
-#     for n in range(1, len(files)):
-#         array1, date_obs1 = radialArray(files[n-1])
-#         array2, date_obs2 = radialArray(files[n])
-
-#         max_radius_entry_1 = maxRadius(array1, deg)
-#         if max_radius_entry_1 is None: continue
-#         max_radius_entry_2 = maxRadius(array2, max_radius_entry_1['deg'])
-#         if max_radius_entry_2 is None: continue
-        
-#         deg = int(max_radius_entry_2['deg'])
-
-#         distance = (max_radius_entry_2['radius'] - max_radius_entry_1['radius'])*696e3 # km
-#         time = abs(date_obs2 - date_obs1)
-#         if time.seconds == 0 :
-#             continue
-        
-#         speed = distance / time.seconds # km/s
-        
-#         speeds.append(speed)   
-#         radiuses.append(max_radius_entry_1['radius'])
-#         times.append(date_obs1)
-#         degrees.append(max_radius_entry_1['deg'])
-
-#     if max_radius_entry_2:
-#         radiuses.append(max_radius_entry_2['radius'])
-#         times.append(date_obs2)
-#         degrees.append(max_radius_entry_2['deg'])
-        
-#     return speeds, radiuses, times, degrees
+    
+    def plotDistances(self):
+        """
+        Plots the height of the prominence over time.
+        """
+        times, radiuses = self.times_radiuses
+        plt.figure(figsize=(10, 5))
+        plt.plot(times, radiuses, marker='+', linestyle='-', color='b', label='Original')
+        plt.title('Height of prominence')
+        plt.xlabel('Time (HH:mm)')
+        plt.ylabel('Solar radius')
+        plt.grid(True)
+        plt.xticks(rotation=45)
+        time_format = mdates.DateFormatter('%H:%M')
+        plt.gca().xaxis.set_major_formatter(time_format)
+        plt.tight_layout();
+    
+    
+    def plotSpeed(self):
+        """
+        Plots the velocity of the prominence over time.
+        """
+        times, speeds = self.times_speeds
+        plt.figure(figsize=(10, 5))
+        plt.plot(times, speeds, marker='+', linestyle='-', color = 'r', label='Original')
+        plt.title('Velocity')
+        plt.xlabel('Time (HH:mm)')
+        plt.ylabel('Velocity (km/s)')
+        plt.grid(True)
+        plt.xticks(rotation=45)
+        time_format = mdates.DateFormatter('%H:%M')
+        plt.gca().xaxis.set_major_formatter(time_format)
+        plt.tight_layout();

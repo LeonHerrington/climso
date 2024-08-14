@@ -281,7 +281,7 @@ import numpy as np
 
 
 def centerDisk(hdu):
-    _, disk = cv.threshold(hdu.data, np.median(hdu.data)/2, 255, cv.THRESH_BINARY)
+    _, disk = cv.threshold(hdu.data, 5000, 255, cv.THRESH_BINARY)
     
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(100,100))
     disk   = cv.morphologyEx(disk.astype(np.uint8), cv.MORPH_OPEN, kernel)
