@@ -16,7 +16,7 @@ from skimage import measure
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-from .utils import medianFlatten, get_mu
+from .utils import toSunpyMap, medianFlatten, get_mu
 
 
 ## Active regions ######################################################################################
@@ -159,7 +159,6 @@ class ActiveRegions:
                 labels[labels==i+1]=min_noaa
 
 
-        # Centroids  
         regions = measure.regionprops(labels)
         
         radius = map.meta['RSUN_OBS']
@@ -203,9 +202,7 @@ class ActiveRegions:
     def plot(self, figsize=(8,8), cmap='gray'):
         """
         Plots active regions.
-        """
-        plt.figure(figsize=figsize)
-        
+        """      
         image = cv.convertScaleAbs(self.map.data, alpha=(255.0/65535.0)).astype(np.uint8)
 
         # Colors
@@ -527,3 +524,122 @@ class ProminenceSpeed:
         time_format = mdates.DateFormatter('%H:%M')
         plt.gca().xaxis.set_major_formatter(time_format)
         plt.tight_layout();
+        
+
+## Filaments   #########################################################################################
+
+class Filaments:
+    
+    def __init__(self, filename):
+        self.filename = filename
+        self.map = toSunpyMap(self.filename, center_disk=True)
+        
+        self.labels, self.table = self.getFilaments(self.map)
+        
+        
+    def getFilaments(self, map):
+        
+        # flatten
+        flattened = medianFlatten(map)
+        mask = np.zeros(map.data.shape, dtype=np.uint8)
+        cv.circle(mask, (1024,1024), int(map.meta['rsun_obs']-20), 1, thickness=-1)
+        flattened[mask==0]=np.nan
+        
+        # threshold
+        upper_thresh = 0.92*np.nanmedian(flattened)
+        binary_image = (flattened<upper_thresh).astype(np.uint8)
+        
+        # morph
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(5,5))
+        binary_image = cv.morphologyEx(binary_image.astype(np.uint8), cv.MORPH_CLOSE, kernel)
+        
+        # get contours
+        contours, _ = cv.findContours(binary_image, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+        # Create an empty mask to draw the filtered contours
+        filaments = np.zeros_like(binary_image)
+
+        # check if contour shape
+        for contour in contours:
+            perimeter = cv.arcLength(contour, True)
+            area = cv.contourArea(contour)
+            if perimeter < 150:
+                continue
+            circularity = (area/(perimeter*perimeter))
+            if circularity < 0.4 * 0.08: # 0.08 is aprox 1/(4*pi)
+                cv.drawContours(filaments, [contour], -1, (255), thickness=cv.FILLED)
+        
+        # get filaments centroids and labels
+        _, labels, _, centroids = cv.connectedComponentsWithStats(filaments, connectivity=8)
+        centroids=centroids[1:] # remove background
+        
+        # get filaments areas
+        regions = measure.regionprops(labels)
+
+        radius = map.meta['RSUN_OBS']
+        mu = get_mu(map)
+
+        num  = []
+        lat  = []
+        lon  = []
+        x    = []
+        y    = []
+        area = []
+
+        for r in regions:
+            point = map.pixel_to_world(r.centroid[1]*u.pixel, r.centroid[0]*u.pixel).heliographic_stonyhurst
+            lat.append(round(point.lat.deg, 2))
+            lon.append(round(point.lon.deg, 2))
+            
+            num.append(r.label)
+            x.append(int(r.centroid[1]))
+            y.append(int(r.centroid[0]))
+            
+            area.append(round((np.sum(labels == r.label) / (2*np.pi*radius**2)) * (10**6 / mu[int(round(r.centroid[1])), int(round(r.centroid[0]))]),2))
+            
+            
+        uSH = u.def_unit('uSH')
+        table = QTable(
+                    [
+                        num,
+                        lat *u.deg,
+                        lon *u.deg,
+                        x   *u.pixel,
+                        y   *u.pixel,
+                        area*uSH
+                    ],
+                    names=('number', 'latitude', 'longitude', 'x', 'y', 'area'),
+                    meta={'date': map.date},
+                    )
+        return labels, table
+    
+    def plot(self, figsize=(8,8)):
+        """
+        Plots filaments.
+        """      
+        image = cv.convertScaleAbs(self.map.data, alpha=(255.0/65535.0)).astype(np.uint8)
+        filaments_binary = (self.labels>0).astype(np.uint8)
+        # Colors
+        color = (255,0,0)
+        weight = np.max(image)/255.0
+        
+        color_image = np.zeros((filaments_binary.shape[0], filaments_binary.shape[1], 3), dtype=np.uint8)
+        color_image[filaments_binary>0] = [255,0,0]
+
+        img_label = cv.addWeighted(cv.cvtColor(image, cv.COLOR_GRAY2RGB), 1/weight, color_image, weight,0)
+
+        contours, _ = cv.findContours(filaments_binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        cv.drawContours(img_label, contours, -1, color, 1)
+
+        # Numbers
+        font = cv.FONT_HERSHEY_DUPLEX
+        fontScale = 1.2
+        thickness = 1
+
+        img_num = img_label.copy()
+        for ar in self.table :
+            cv.putText(img_num, str(ar['number']), (int(ar['x'].value) + 10, int(ar['y'].value) + 10), font, fontScale, color, thickness, cv.LINE_AA, True)
+
+        plt.figure(figsize=figsize)
+        plt.axis('off')
+        plt.imshow(img_num, origin='lower');
