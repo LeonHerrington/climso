@@ -94,7 +94,7 @@ class SynopticMap:
         ### Carrington projections
         carrington_list = []
         for filename in files:
-            carrington_list.append(self.carrington(filename, flat=True, center=True, mean=30000))
+            carrington_list.append(carrington(filename, flat=True, center=True, mean=30000))
         
         carrington_list.sort(key=lambda x: x.carrington_longitude.deg)
         
@@ -184,7 +184,31 @@ class SynopticMap:
         return synoptic_map
 
 
-    def carrington(self, filename, flat=False, center=False, mean=None):
+    
+        
+    
+    def plot(self,figsize=(10,5), cmap='gray', vmin=None, vmax=None):
+        """
+        Plots the synopticMap.
+        """
+        plt.figure(figsize=figsize)
+        plt.imshow(self.data, origin='lower', extent=[0,360,-90,90], cmap=cmap, vmin=vmin, vmax=vmax)
+ 
+        x_ticks = np.arange(0, 361, 30)
+        y_ticks = np.arange(-90, 91, 30)
+        
+        plt.xticks(x_ticks, [f'{tick}°' for tick in x_ticks])
+        plt.yticks(y_ticks, [f'{tick}°' for tick in y_ticks])
+        
+        plt.axis('on')
+
+        plt.xlabel('Carrington Longitude');
+        plt.ylabel('Latitude');
+        
+
+
+
+def carrington( filename, flat=False, center=False, mean=None):
         """
         Parameters
         ------
@@ -223,19 +247,3 @@ class SynopticMap:
         carrington_map = map.reproject_to(carr_header)
 
         return carrington_map
-        
-    
-    def plot(self,figsize=(10,5), cmap='gray', vmin=None, vmax=None):
-        """
-        Plots the synopticMap.
-        """
-        plt.figure(figsize=figsize)
-        plt.imshow(self.data, origin='lower', extent=[0,360,-90,90], cmap=cmap, vmin=vmin, vmax=vmax)
- 
-        plt.xticks(np.arange(0, 361, 30))
-        plt.yticks(np.arange(-90,91,30))
-        
-        plt.axis()
-
-        plt.xlabel('Carrington Longitude');
-        plt.ylabel('Latitude');

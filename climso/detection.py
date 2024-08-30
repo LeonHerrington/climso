@@ -408,8 +408,8 @@ class Prominences:
 
         return pd.DataFrame(prominences)
     
-    def plot(self):
-        fig, ax = plt.subplots(figsize=(10,4))
+    def plot(self, figsize=(10,4)):
+        fig, ax = plt.subplots(figsize=figsize)
         plt.imshow(self.array, origin='lower')
         
         for _, prom in self.prominences.iterrows():
