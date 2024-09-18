@@ -163,4 +163,6 @@ cython_debug/
 
 data/
 dataset/
+dataset_v2/
 notes/
+frames/

@@ -542,7 +542,7 @@ class Filaments:
         # flatten
         flattened = medianFlatten(map)
         mask = np.zeros(map.data.shape, dtype=np.uint8)
-        cv.circle(mask, (1024,1024), int(map.meta['rsun_obs']-20), 1, thickness=-1)
+        cv.circle(mask, (1024,1024), int(map.meta['rsun_obs']-10), 1, thickness=-1)
         flattened[mask==0]=np.nan
         
         # threshold
